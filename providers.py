@@ -1,114 +1,71 @@
 """
-Provider waterfall for the Pion Discovery tool.
+Provider routing for Pion Disco Prep.
+
+Picker model: caller specifies exactly one provider per step.
+No automatic fallback — if a provider fails, the exception bubbles up
+and the UI shows it. This matches the Notion Mid-Market Prospector pattern
+and keeps cost/quality predictable.
 
 Two entry points:
-  - call_with_search: web-search-enabled call (for person & company research)
-  - call_for_synthesis: pure-LLM call (for cheat sheet synthesis)
+  - call_search:    web-search-enabled call (person + company research)
+  - call_synthesis: pure-LLM call (turning dossiers into a Disco Prep)
 
-Both implement the waterfall: try primary, fall through to others on failure.
-Order tried = [primary] + [the rest in canonical order, deduped]
-Canonical order: perplexity, anthropic, openai, gemini
-
-Each provider returns (text, provider_name_used) or (None, None) if all fail.
+Plus:
+  - available_providers: returns the list of providers with a non-empty key
 """
 
-import streamlit as st
-from typing import Optional, Tuple, Dict
+from typing import Dict, List
 
 
 CANONICAL_ORDER = ["perplexity", "anthropic", "openai", "gemini"]
 
 
-def _build_order(primary: str) -> list:
-    rest = [p for p in CANONICAL_ORDER if p != primary]
-    return [primary] + rest
+def available_providers(api_keys: Dict[str, str]) -> List[str]:
+    """Return providers that have a non-empty key, in canonical display order."""
+    return [p for p in CANONICAL_ORDER if (api_keys.get(p) or "").strip()]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Search-enabled calls (live web)
+# Public entry points
 # ─────────────────────────────────────────────────────────────────────────────
-def call_with_search(prompt: str, api_keys: Dict[str, str], primary: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Try providers in waterfall order until one returns text.
-    Each provider uses its own native web-search capability.
-    """
-    order = _build_order(primary)
-    last_error = None
+def call_search(prompt: str, api_keys: Dict[str, str], provider: str) -> str:
+    """Run a live-web-search call with the chosen provider."""
+    key = (api_keys.get(provider) or "").strip()
+    if not key:
+        raise ValueError(f"No API key configured for {provider}")
 
-    for provider in order:
-        key = api_keys.get(provider, "").strip()
-        if not key:
-            continue
-        try:
-            if provider == "perplexity":
-                text = _perplexity_search(prompt, key)
-            elif provider == "anthropic":
-                text = _anthropic_search(prompt, key)
-            elif provider == "openai":
-                text = _openai_search(prompt, key)
-            elif provider == "gemini":
-                text = _gemini_search(prompt, key)
-            else:
-                continue
+    if provider == "perplexity":
+        return _perplexity_search(prompt, key)
+    if provider == "anthropic":
+        return _anthropic_search(prompt, key)
+    if provider == "openai":
+        return _openai_search(prompt, key)
+    if provider == "gemini":
+        return _gemini_search(prompt, key)
+    raise ValueError(f"Unknown provider: {provider}")
 
-            if text and text.strip():
-                return text, provider
-        except Exception as e:
-            last_error = f"{provider}: {e}"
-            st.warning(f"⚠️ {provider} failed ({e}), trying next provider…")
-            continue
 
-    if last_error:
-        st.error(f"All search providers failed. Last error: {last_error}")
-    return None, None
+def call_synthesis(system_prompt: str, user_prompt: str, api_keys: Dict[str, str], provider: str) -> str:
+    """Run a synthesis (no web search) call with the chosen provider."""
+    key = (api_keys.get(provider) or "").strip()
+    if not key:
+        raise ValueError(f"No API key configured for {provider}")
+
+    if provider == "perplexity":
+        return _perplexity_chat(system_prompt, user_prompt, key)
+    if provider == "anthropic":
+        return _anthropic_chat(system_prompt, user_prompt, key)
+    if provider == "openai":
+        return _openai_chat(system_prompt, user_prompt, key)
+    if provider == "gemini":
+        return _gemini_chat(system_prompt, user_prompt, key)
+    raise ValueError(f"Unknown provider: {provider}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Synthesis calls (no search needed — reasoning over given inputs)
-# ─────────────────────────────────────────────────────────────────────────────
-def call_for_synthesis(
-    system_prompt: str,
-    user_prompt: str,
-    api_keys: Dict[str, str],
-    primary: str,
-) -> Tuple[Optional[str], Optional[str]]:
-    """Synthesis step — pure reasoning over the dossiers."""
-    order = _build_order(primary)
-    last_error = None
-
-    for provider in order:
-        key = api_keys.get(provider, "").strip()
-        if not key:
-            continue
-        try:
-            if provider == "perplexity":
-                text = _perplexity_chat(system_prompt, user_prompt, key)
-            elif provider == "anthropic":
-                text = _anthropic_chat(system_prompt, user_prompt, key)
-            elif provider == "openai":
-                text = _openai_chat(system_prompt, user_prompt, key)
-            elif provider == "gemini":
-                text = _gemini_chat(system_prompt, user_prompt, key)
-            else:
-                continue
-
-            if text and text.strip():
-                return text, provider
-        except Exception as e:
-            last_error = f"{provider}: {e}"
-            st.warning(f"⚠️ {provider} synthesis failed ({e}), trying next provider…")
-            continue
-
-    if last_error:
-        st.error(f"All synthesis providers failed. Last error: {last_error}")
-    return None, None
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Per-provider implementations — search variants
+# Search-enabled implementations
 # ─────────────────────────────────────────────────────────────────────────────
 def _perplexity_search(prompt: str, api_key: str) -> str:
-    """Perplexity Sonar is search-native — every call is a live web search."""
     from openai import OpenAI
     client = OpenAI(api_key=api_key, base_url="https://api.perplexity.ai")
     response = client.chat.completions.create(
@@ -132,7 +89,6 @@ def _anthropic_search(prompt: str, api_key: str) -> str:
 
 
 def _openai_search(prompt: str, api_key: str) -> str:
-    """OpenAI's gpt-4o-search-preview supports web search."""
     from openai import OpenAI
     client = OpenAI(api_key=api_key)
     response = client.chat.completions.create(
@@ -144,10 +100,8 @@ def _openai_search(prompt: str, api_key: str) -> str:
 
 
 def _gemini_search(prompt: str, api_key: str) -> str:
-    """Gemini 2.0 Flash with the google_search tool."""
     from google import genai
     from google.genai import types
-
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
         model="gemini-2.0-flash",
@@ -160,7 +114,7 @@ def _gemini_search(prompt: str, api_key: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Per-provider implementations — chat (synthesis) variants
+# Chat (synthesis) implementations
 # ─────────────────────────────────────────────────────────────────────────────
 def _perplexity_chat(system_prompt: str, user_prompt: str, api_key: str) -> str:
     from openai import OpenAI
@@ -203,9 +157,7 @@ def _openai_chat(system_prompt: str, user_prompt: str, api_key: str) -> str:
 
 
 def _gemini_chat(system_prompt: str, user_prompt: str, api_key: str) -> str:
-    """Gemini doesn't have a separate system role — prepend system to the user content."""
     from google import genai
-
     client = genai.Client(api_key=api_key)
     combined = f"{system_prompt}\n\n---\n\n{user_prompt}"
     response = client.models.generate_content(
