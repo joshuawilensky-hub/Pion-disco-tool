@@ -4,14 +4,12 @@ Pion Disco Prep
 Pre-call discovery prep for Pion Business Development Managers.
 
 Phased flow:
-  Phase 1 — Inputs:      You enter company, person, title
-  Phase 2 — Review:      You see and edit the live research dossiers
-  Phase 3 — Disco Prep:  Synthesis produces a one-page brief tuned to
-                          title-driven priorities and rapport-relevant moments
+  Phase 1 — Inputs:      Company, person, title
+  Phase 2 — Review:      Structured form editors for both dossiers (no JSON)
+  Phase 3 — Disco Prep:  Menu of Pain + four-quadrant pitch hypothesis
 
 API keys are read from st.secrets — no UI fields. Configure them in Streamlit Cloud
 under Settings → Secrets in TOML format. Any subset works:
-
   PERPLEXITY_API_KEY = "pplx-..."
   ANTHROPIC_API_KEY  = "sk-ant-..."
   OPENAI_API_KEY     = "sk-..."
@@ -98,7 +96,6 @@ st.markdown(
         border-radius: 2px;
         margin-right: 6px;
       }
-      .chip.muted { background: #E5E5DF; color: #64748B; }
 
       .phase-pill {
         display: inline-block;
@@ -113,6 +110,15 @@ st.markdown(
         margin-bottom: 1rem;
       }
       .phase-pill.done { background: #D1FAE5; color: #065F46; }
+
+      /* Card styling for list items in the form editor */
+      .editor-card {
+        background: #FFFFFF;
+        border: 1px solid #E5E5DF;
+        border-radius: 6px;
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.5rem;
+      }
     </style>
     """,
     unsafe_allow_html=True,
@@ -168,8 +174,7 @@ synth_provider = st.sidebar.selectbox(
 
 st.sidebar.markdown("---")
 st.sidebar.caption(
-    "Recommended: Perplexity for search (cited live data, cheap), "
-    "Anthropic for synthesis (best reasoning over messy inputs)."
+    "Recommended: Perplexity for search, Anthropic for synthesis."
 )
 
 
@@ -198,10 +203,107 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.caption(
-    "Pre-call prep for booked discovery meetings. Enter the company and who's on the call — "
-    "the tool pulls live signal, lets you review and edit the dossiers, then generates a one-page Disco Prep "
-    "tuned to title-driven priorities and rapport-relevant moments."
+    "Pre-call prep for booked discovery meetings. Research → review → Disco Prep with Menu of Pain framework + four-quadrant pitch hypothesis."
 )
+
+
+# ── Form helpers for Phase 2 ──────────────────────────────────────────────────
+def text_field(label: str, value, key: str, height: int = None) -> str:
+    """Render a single-line or multi-line text input with the given default value."""
+    val = value if isinstance(value, str) else (str(value) if value is not None else "")
+    if height:
+        return st.text_area(label, value=val, key=key, height=height)
+    return st.text_input(label, value=val, key=key)
+
+
+def list_of_strings_editor(label: str, items: list, key_prefix: str, placeholder: str = "") -> list:
+    """Render a list of strings as add/remove cards. Returns the edited list."""
+    if not isinstance(items, list):
+        items = []
+
+    # Track count in session state so add/remove buttons work cleanly across reruns
+    count_key = f"{key_prefix}_count"
+    if count_key not in st.session_state:
+        st.session_state[count_key] = max(len(items), 1)
+
+    st.markdown(f"**{label}**")
+    edited = []
+    for i in range(st.session_state[count_key]):
+        existing = items[i] if i < len(items) else ""
+        col1, col2 = st.columns([10, 1])
+        with col1:
+            val = st.text_input(
+                f"{label} #{i+1}",
+                value=existing if isinstance(existing, str) else str(existing),
+                key=f"{key_prefix}_item_{i}",
+                placeholder=placeholder,
+                label_visibility="collapsed",
+            )
+        with col2:
+            if st.button("✕", key=f"{key_prefix}_rm_{i}", help="Remove"):
+                st.session_state[count_key] = max(0, st.session_state[count_key] - 1)
+                # Shift everything down
+                for j in range(i, st.session_state[count_key]):
+                    nxt = st.session_state.get(f"{key_prefix}_item_{j+1}", "")
+                    st.session_state[f"{key_prefix}_item_{j}"] = nxt
+                st.rerun()
+        if val.strip():
+            edited.append(val.strip())
+
+    if st.button(f"+ Add", key=f"{key_prefix}_add"):
+        st.session_state[count_key] += 1
+        st.rerun()
+
+    return edited
+
+
+def list_of_dicts_editor(label: str, items: list, schema: list, key_prefix: str) -> list:
+    """
+    Render a list of dict items as cards, where each card has fields per `schema`.
+    schema is a list of (field_key, field_label, field_type) tuples.
+    field_type: 'text' | 'textarea'
+    Returns the edited list of dicts.
+    """
+    if not isinstance(items, list):
+        items = []
+
+    count_key = f"{key_prefix}_count"
+    if count_key not in st.session_state:
+        st.session_state[count_key] = max(len(items), 1)
+
+    st.markdown(f"**{label}**")
+    edited = []
+    for i in range(st.session_state[count_key]):
+        existing = items[i] if i < len(items) and isinstance(items[i], dict) else {}
+        with st.container():
+            st.markdown(f"<div class='editor-card'>", unsafe_allow_html=True)
+            cols = st.columns([10, 1])
+            with cols[0]:
+                st.caption(f"Entry #{i+1}")
+            with cols[1]:
+                if st.button("✕", key=f"{key_prefix}_rm_{i}", help="Remove this entry"):
+                    st.session_state[count_key] = max(0, st.session_state[count_key] - 1)
+                    st.rerun()
+
+            entry = {}
+            for fkey, flabel, ftype in schema:
+                widget_key = f"{key_prefix}_{i}_{fkey}"
+                default = existing.get(fkey, "") if isinstance(existing, dict) else ""
+                if ftype == "textarea":
+                    entry[fkey] = st.text_area(flabel, value=str(default), key=widget_key, height=70)
+                else:
+                    entry[fkey] = st.text_input(flabel, value=str(default), key=widget_key)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            # Only keep the entry if at least one field has content
+            if any(v.strip() for v in entry.values() if isinstance(v, str)):
+                edited.append(entry)
+
+    if st.button(f"+ Add another", key=f"{key_prefix}_add"):
+        st.session_state[count_key] += 1
+        st.rerun()
+
+    return edited
 
 
 # ── PHASE 1 — INPUT ───────────────────────────────────────────────────────────
@@ -219,7 +321,8 @@ if st.session_state.phase == "input":
                 "Pion product angle",
                 [
                     "Let the tool decide based on signal",
-                    "Verification (Connect / Beans ID core)",
+                    "Verification (Beans iD core)",
+                    "In-store verification",
                     "Loyalty SSO (Playbook 3)",
                     "Media",
                     "BeansID multi-group",
@@ -265,7 +368,7 @@ if st.session_state.phase == "input":
             )
             try:
                 person_raw = call_search(prompt=person_prompt, api_keys=api_keys, provider=search_provider)
-                st.session_state.person_data = parse_json_object(person_raw) if person_raw else {}
+                st.session_state.person_data = parse_json_object(person_raw) or {}
                 st.session_state.providers_used["person_search"] = search_provider
             except Exception as e:
                 st.error(f"Person research failed via {search_provider}: {e}")
@@ -283,7 +386,7 @@ if st.session_state.phase == "input":
                 company_prompt = COMPANY_RESEARCH_PROMPT.format(company=company.strip())
                 try:
                     company_raw = call_search(prompt=company_prompt, api_keys=api_keys, provider=search_provider)
-                    company_data = parse_json_object(company_raw) if company_raw else {}
+                    company_data = parse_json_object(company_raw) or {}
                     st.session_state.company_data = company_data
                     st.session_state.company_cache[company_key] = {"data": company_data, "provider": search_provider}
                     st.session_state.providers_used["company_search"] = search_provider
@@ -291,43 +394,153 @@ if st.session_state.phase == "input":
                     st.error(f"Company research failed via {search_provider}: {e}")
                     st.stop()
 
+        # Reset all editor counters so they re-init from new data
+        for k in list(st.session_state.keys()):
+            if k.endswith("_count"):
+                del st.session_state[k]
+
         st.session_state.phase = "research_done"
         st.rerun()
 
 
-# ── PHASE 2 — REVIEW & EDIT ───────────────────────────────────────────────────
+# ── PHASE 2 — REVIEW & EDIT (structured form) ────────────────────────────────
 elif st.session_state.phase == "research_done":
     st.markdown('<div class="phase-pill done">Phase 2 of 3 · Review & edit dossiers</div>', unsafe_allow_html=True)
 
     inputs = st.session_state.inputs
     st.markdown(f"**{inputs['company']}** · {inputs['person_name']}, *{inputs['person_title']}*")
     st.caption(
-        "Review the dossiers below — fix anything wrong, add anything missing. "
+        "The research populated these fields. Edit anything that's wrong, add anything missing. "
         "Synthesis runs on whatever you save here."
     )
 
-    col_left, col_right = st.columns(2)
+    person = st.session_state.person_data or {}
+    company_d = st.session_state.company_data or {}
 
-    with col_left:
-        st.markdown("##### 👤 Person dossier")
+    # Two-tab layout for cleanliness
+    tab_person, tab_company = st.tabs(["👤 Person dossier", "🏢 Company dossier"])
+
+    with tab_person:
         st.caption(f"Source: {st.session_state.providers_used.get('person_search', 'unknown')}")
-        person_json_str = st.text_area(
-            "Edit JSON",
-            value=json.dumps(st.session_state.person_data, indent=2) if st.session_state.person_data else "{}",
-            height=420,
-            key="person_editor",
+
+        person_edited = {}
+        person_edited["person_name"] = text_field("Name", person.get("person_name", inputs["person_name"]), "p_name")
+        person_edited["current_title"] = text_field("Current title", person.get("current_title", inputs["person_title"]), "p_title")
+        person_edited["tenure_at_company"] = text_field("Tenure at company", person.get("tenure_at_company", ""), "p_tenure")
+        person_edited["scope_of_role"] = text_field("Scope of role (what they own)", person.get("scope_of_role", ""), "p_scope", height=70)
+        person_edited["reports_to"] = text_field("Reports to", person.get("reports_to", ""), "p_reports")
+        person_edited["topics_they_gravitate_to"] = text_field("Topics they gravitate to", person.get("topics_they_gravitate_to", ""), "p_topics", height=70)
+        person_edited["shared_background_hooks"] = text_field("Shared background hooks", person.get("shared_background_hooks", ""), "p_hooks", height=70)
+
+        st.markdown("---")
+        person_edited["title_driven_priorities"] = list_of_strings_editor(
+            "Title-driven priorities (what they're measured on)",
+            person.get("title_driven_priorities", []),
+            "p_priorities",
+            placeholder="e.g. Drive Gen Z brand affinity",
         )
 
-    with col_right:
-        st.markdown("##### 🏢 Company dossier")
+        st.markdown("---")
+        person_edited["rapport_moments"] = list_of_dicts_editor(
+            "Rapport moments (recent public things to mention)",
+            person.get("rapport_moments", []),
+            schema=[
+                ("moment", "Moment", "textarea"),
+                ("source", "Source", "text"),
+                ("date", "Date (YYYY-MM)", "text"),
+                ("rapport_value", "Rapport value (High/Medium/Low)", "text"),
+            ],
+            key_prefix="p_rapport",
+        )
+
+        st.markdown("---")
+        person_edited["previous_roles"] = list_of_dicts_editor(
+            "Previous roles",
+            person.get("previous_roles", []),
+            schema=[
+                ("title", "Title", "text"),
+                ("company", "Company", "text"),
+                ("duration", "Duration", "text"),
+                ("relevance", "Why it matters for this call", "textarea"),
+            ],
+            key_prefix="p_prev_roles",
+        )
+
+        st.markdown("---")
+        person_edited["public_footprint"] = list_of_dicts_editor(
+            "Public footprint (podcasts, panels, press, posts)",
+            person.get("public_footprint", []),
+            schema=[
+                ("type", "Type (podcast/panel/article/post)", "text"),
+                ("topic", "Topic", "textarea"),
+                ("source", "Source", "text"),
+                ("date", "Date (YYYY-MM)", "text"),
+            ],
+            key_prefix="p_footprint",
+        )
+
+        st.markdown("---")
+        person_edited["research_confidence"] = text_field("Research confidence (High/Medium/Low)", person.get("research_confidence", ""), "p_conf")
+        person_edited["research_gaps"] = text_field("Research gaps", person.get("research_gaps", ""), "p_gaps", height=70)
+
+    with tab_company:
         st.caption(f"Source: {st.session_state.providers_used.get('company_search', 'unknown')}")
-        company_json_str = st.text_area(
-            "Edit JSON",
-            value=json.dumps(st.session_state.company_data, indent=2) if st.session_state.company_data else "{}",
-            height=420,
-            key="company_editor",
+
+        company_edited = {}
+        company_edited["company"] = text_field("Company", company_d.get("company", inputs["company"]), "c_name")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            company_edited["segment"] = text_field("Segment", company_d.get("segment", ""), "c_segment")
+            company_edited["us_location_count"] = text_field("US location count", company_d.get("us_location_count", ""), "c_locs")
+            company_edited["us_presence"] = text_field("US presence (Yes/Limited/No)", company_d.get("us_presence", ""), "c_us")
+            company_edited["ecommerce_presence"] = text_field("Ecommerce presence", company_d.get("ecommerce_presence", ""), "c_ecom")
+            company_edited["physical_store_presence"] = text_field("Physical store presence", company_d.get("physical_store_presence", ""), "c_phys")
+        with col2:
+            company_edited["has_student_discount"] = text_field("Has student discount?", company_d.get("has_student_discount", ""), "c_sd")
+            company_edited["student_discount_provider"] = text_field("Student discount provider", company_d.get("student_discount_provider", ""), "c_sdp")
+            company_edited["has_loyalty_app"] = text_field("Has loyalty app?", company_d.get("has_loyalty_app", ""), "c_la")
+            company_edited["loyalty_app_name"] = text_field("Loyalty app name", company_d.get("loyalty_app_name", ""), "c_lan")
+            company_edited["loyalty_strategic_priority"] = text_field("Loyalty is strategic priority?", company_d.get("loyalty_strategic_priority", ""), "c_lsp")
+
+        company_edited["loyalty_tech_stack"] = text_field("Loyalty tech stack", company_d.get("loyalty_tech_stack", ""), "c_lts")
+        company_edited["student_discount_details"] = text_field("Student discount details", company_d.get("student_discount_details", ""), "c_sdd", height=70)
+        company_edited["runs_general_promos"] = text_field("Runs general promos?", company_d.get("runs_general_promos", ""), "c_promos")
+        company_edited["seasonal_focus"] = text_field("Seasonal focus", company_d.get("seasonal_focus", ""), "c_season", height=70)
+        company_edited["leadership_changes_last_12mo"] = text_field("Leadership changes (last 12mo)", company_d.get("leadership_changes_last_12mo", ""), "c_leadership", height=70)
+
+        st.markdown("---")
+        company_edited["promo_examples"] = list_of_strings_editor(
+            "Promo examples",
+            company_d.get("promo_examples", []),
+            "c_promo_ex",
+            placeholder="e.g. BOGO Tuesdays via app",
         )
 
+        st.markdown("---")
+        company_edited["recent_news"] = list_of_dicts_editor(
+            "Recent news",
+            company_d.get("recent_news", []),
+            schema=[
+                ("headline", "Headline", "textarea"),
+                ("date", "Date (YYYY-MM)", "text"),
+                ("relevance_to_pion", "Relevance to Pion", "textarea"),
+            ],
+            key_prefix="c_news",
+        )
+
+        st.markdown("---")
+        col3, col4 = st.columns(2)
+        with col3:
+            company_edited["pion_product_fit"] = text_field("Pion product fit", company_d.get("pion_product_fit", ""), "c_fit")
+            company_edited["displacement_target"] = text_field("Displacement target", company_d.get("displacement_target", ""), "c_disp")
+        with col4:
+            company_edited["research_confidence"] = text_field("Research confidence", company_d.get("research_confidence", ""), "c_conf")
+        company_edited["fit_rationale"] = text_field("Fit rationale", company_d.get("fit_rationale", ""), "c_rat", height=70)
+        company_edited["research_gaps"] = text_field("Research gaps", company_d.get("research_gaps", ""), "c_gaps", height=70)
+
+    # Action buttons
+    st.markdown("---")
     col_a, _, col_c = st.columns([1, 1, 1])
     with col_a:
         if st.button("⬅ Back to inputs", use_container_width=True):
@@ -337,15 +550,9 @@ elif st.session_state.phase == "research_done":
         build = st.button("🎯 Build Disco Prep", type="primary", use_container_width=True)
 
     if build:
-        try:
-            edited_person = json.loads(person_json_str) if person_json_str.strip() else {}
-            edited_company = json.loads(company_json_str) if company_json_str.strip() else {}
-        except json.JSONDecodeError as e:
-            st.error(f"JSON parse error in dossier edits: {e}")
-            st.stop()
-
-        st.session_state.person_data = edited_person
-        st.session_state.company_data = edited_company
+        # Persist edits
+        st.session_state.person_data = {k: v for k, v in person_edited.items() if v not in ([], "", None)}
+        st.session_state.company_data = {k: v for k, v in company_edited.items() if v not in ([], "", None)}
 
         with st.spinner(f"Synthesising Disco Prep via {synth_provider}…"):
             synth_user = build_synthesis_user_prompt(
@@ -354,8 +561,8 @@ elif st.session_state.phase == "research_done":
                 person_title=inputs["person_title"],
                 product_angle=inputs["product_angle"],
                 extra_context=inputs["extra_context"],
-                person_data=edited_person,
-                company_data=edited_company,
+                person_data=st.session_state.person_data,
+                company_data=st.session_state.company_data,
             )
             try:
                 prep_raw = call_synthesis(
@@ -364,7 +571,7 @@ elif st.session_state.phase == "research_done":
                     api_keys=api_keys,
                     provider=synth_provider,
                 )
-                disco_prep = parse_json_object(prep_raw) if prep_raw else {}
+                disco_prep = parse_json_object(prep_raw) or {}
             except Exception as e:
                 st.error(f"Synthesis failed via {synth_provider}: {e}")
                 st.stop()
@@ -433,8 +640,11 @@ elif st.session_state.phase == "prep_done":
             st.session_state.phase = "input"
             st.session_state.person_data = {}
             st.session_state.disco_prep = {}
-            # Note: company_data and company_cache persist intentionally
             st.session_state.providers_used = {}
+            # Clear all editor counts so the form re-initializes
+            for k in list(st.session_state.keys()):
+                if k.endswith("_count"):
+                    del st.session_state[k]
             st.rerun()
 
     with st.expander("🔍 Person dossier (post-edit)"):
