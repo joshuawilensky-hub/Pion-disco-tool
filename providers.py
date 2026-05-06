@@ -105,7 +105,7 @@ def _gemini_search(prompt: str, api_key: str) -> str:
     from google.genai import types
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-1.5-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
             tools=[types.Tool(google_search=types.GoogleSearch())],
@@ -162,7 +162,7 @@ def _gemini_chat(system_prompt: str, user_prompt: str, api_key: str) -> str:
     client = genai.Client(api_key=api_key)
     combined = f"{system_prompt}\n\n---\n\n{user_prompt}"
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-1.5-flash",
         contents=combined,
     )
     return response.text or ""
