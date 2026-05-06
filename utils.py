@@ -1,15 +1,5 @@
 """
 Utilities for Pion Disco Prep: JSON parsing + Disco Prep markdown rendering.
-
-Renderer outputs sections in the order the rep will use them:
-  1. Headline / Person / Company snapshot
-  2. Opening Line (rapport)
-  3. Menu of Pain (3 options with pain funnels)
-  4. CHAMP qualifiers (back-third of call)
-  5. Listen-for signals (mid-call pivots)
-  6. Landmines
-  7. Four-Quadrant Hypothesis (pre-call pitch hypothesis)
-  8. Proof points + Ideal next step
 """
 
 import json
@@ -94,7 +84,7 @@ def render_disco_prep_markdown(
 
     rapport = pd.get("rapport_moments") or []
     if rapport:
-        label("Rapport Moments")
+        label("Rapport Moments (last 3 months)")
         for rm in rapport:
             moment = rm.get("moment", "")
             how = rm.get("how_to_use", "")
@@ -109,15 +99,38 @@ def render_disco_prep_markdown(
     # ── Company snapshot ──────────────────────────────────────────────────────
     co = prep.get("company_snapshot", {}) or {}
     label("Company Snapshot")
-    if co.get("summary"):
-        L.append(co["summary"] + "\n")
-    if co.get("recommended_pion_product"):
-        L.append(f"**Lead with:** {co['recommended_pion_product']}")
-    if co.get("rationale"):
-        L.append(f"**Why:** {co['rationale']}")
+    if co.get("plain_description"):
+        L.append(co["plain_description"] + "\n")
+
+    if co.get("stated_strategic_priorities"):
+        L.append("**Their stated priorities:**")
+        for p in co["stated_strategic_priorities"]:
+            L.append(f"- {p}")
+        L.append("")
+
+    if co.get("live_signals_relevant_to_pion"):
+        L.append("**Live signals relevant to Pion (last 3 months):**")
+        for s in co["live_signals_relevant_to_pion"]:
+            L.append(f"- {s}")
+        L.append("")
+
     if co.get("displacement_target"):
-        L.append(f"**Displace:** {co['displacement_target']}")
+        L.append(f"**Displacement target:** {co['displacement_target']}")
     L.append("")
+
+    # ── Pain selection reasoning ──────────────────────────────────────────────
+    psr = prep.get("pain_selection_reasoning", {}) or {}
+    if psr:
+        label("Why These Pains (selection logic)")
+        if psr.get("title_fit_pains"):
+            L.append(f"**Title plausibly owns:** {', '.join(psr['title_fit_pains'])}")
+        if psr.get("company_fit_pains"):
+            L.append(f"**Company plausibly suffers:** {', '.join(psr['company_fit_pains'])}")
+        if psr.get("overlap_pains"):
+            L.append(f"**Overlap (= Menu options):** {', '.join(psr['overlap_pains'])}")
+        if psr.get("reasoning"):
+            L.append(f"\n*{psr['reasoning']}*")
+        L.append("")
 
     # ── Opening line ──────────────────────────────────────────────────────────
     if prep.get("opening_line"):
@@ -135,10 +148,14 @@ def render_disco_prep_markdown(
             lbl = opt.get("label", "?")
             pain = opt.get("pain_in_customer_language", "")
             mapped = opt.get("which_pion_pain_this_maps_to", "")
+            why = opt.get("why_this_pain_for_this_person", "")
             pivot = opt.get("if_they_pick_this_pivot_to", "")
             L.append(f"#### Option {lbl}: {pain}")
             if mapped:
-                L.append(f"*Maps to Pion pain: {mapped}* · *Pivot to: {pivot}*\n")
+                L.append(f"*Maps to: {mapped}* · *Pivot to: {pivot}*")
+            if why:
+                L.append(f"*Why for them:* {why}")
+            L.append("")
 
             funnel = opt.get("pain_funnel", {}) or {}
             if funnel.get("problem_question"):
@@ -148,6 +165,23 @@ def render_disco_prep_markdown(
             if funnel.get("need_payoff_question"):
                 L.append(f"**Need-Payoff:** {funnel['need_payoff_question']}")
             L.append("")
+
+    # ── If menu doesn't land ──────────────────────────────────────────────────
+    miss = prep.get("if_menu_doesnt_land", {}) or {}
+    if miss:
+        label("If the Menu Doesn't Land")
+        if miss.get("signals_menu_isnt_resonating"):
+            L.append("**Signals it's not landing:**")
+            for s in miss["signals_menu_isnt_resonating"]:
+                L.append(f"- {s}")
+            L.append("")
+        if miss.get("redirect_options"):
+            L.append("**Redirect options:**")
+            for r in miss["redirect_options"]:
+                L.append(f"- {r}")
+            L.append("")
+        if miss.get("graceful_exit_question"):
+            L.append(f"**Graceful exit question:** *\"{miss['graceful_exit_question']}\"*\n")
 
     # ── CHAMP qualifiers ──────────────────────────────────────────────────────
     champ = prep.get("champ_qualifiers", {}) or {}
@@ -183,7 +217,7 @@ def render_disco_prep_markdown(
     fq = prep.get("four_quadrant_hypothesis", {}) or {}
     if fq:
         label("Four-Quadrant Pitch Hypothesis")
-        L.append("*Your pre-call bet on what the partnership pitch will look like — discovery validates or invalidates.*\n")
+        L.append("*Your pre-call bet on what the partnership pitch would look like — discovery validates or invalidates.*\n")
 
         if fq.get("strategic_growth_objectives"):
             L.append("**1. Strategic Growth Objectives** *(what you suspect they're chasing)*")
@@ -217,9 +251,16 @@ def render_disco_prep_markdown(
             L.append(f"- **{point}** — *use when:* {when}")
         L.append("")
 
-    # ── Ideal next step ───────────────────────────────────────────────────────
-    if prep.get("ideal_next_step"):
-        label("Ideal Next Step")
-        L.append(prep["ideal_next_step"])
+    # ── Next-step ladder ──────────────────────────────────────────────────────
+    nsl = prep.get("next_step_ladder", {}) or {}
+    if nsl:
+        label("Next-Step Ladder")
+        if nsl.get("best_case"):
+            L.append(f"**Best case:** {nsl['best_case']}")
+        if nsl.get("good_case"):
+            L.append(f"**Good case:** {nsl['good_case']}")
+        if nsl.get("consolation"):
+            L.append(f"**Consolation:** {nsl['consolation']}")
+        L.append("")
 
     return "\n".join(L)
