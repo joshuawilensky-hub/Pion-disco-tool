@@ -1,5 +1,6 @@
 """
-Provider routing for Pion Disco Prep.
+Provider routing for Pion Dis
+co Prep.
 
 Picker model: caller specifies exactly one provider per step.
 No automatic fallback — if a provider fails, the exception bubbles up
@@ -80,7 +81,7 @@ def _anthropic_search(prompt: str, api_key: str) -> str:
     from anthropic import Anthropic
     client = Anthropic(api_key=api_key)
     message = client.messages.create(
-        model="claude-3-5-sonnet-latest",
+        model="claude-3-5-sonnet-20241022",
         max_tokens=3000,
         tools=[{"type": "web_search_20250305", "name": "web_search"}],
         messages=[{"role": "user", "content": prompt}],
