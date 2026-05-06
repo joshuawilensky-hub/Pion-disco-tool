@@ -135,7 +135,7 @@ def _anthropic_chat(system_prompt: str, user_prompt: str, api_key: str) -> str:
     from anthropic import Anthropic
     client = Anthropic(api_key=api_key)
     message = client.messages.create(
-        model="claude-3-5-sonnet-latest",
+        model="claude-3-5-sonnet-20241022",
         max_tokens=4000,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
